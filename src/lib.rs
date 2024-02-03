@@ -5,7 +5,7 @@ use nom::{
     character::complete::{anychar, char, digit1, space1},
     combinator::{map, map_res, opt},
     multi::{separated_list0, separated_list1},
-    sequence::{pair, preceded, tuple},
+    sequence::{pair, preceded, terminated, tuple},
     IResult,
 };
 use rust_decimal::Decimal;
@@ -22,9 +22,9 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
             rate_limit,
             _semicon,
             job_statuses,
-            _,
+            _lb,
             progress_percentage,
-            _,
+            _rb,
             (read_speed, write_speed, trim_speed),
             (read_iops, write_iops, trim_iops),
             _eta,
@@ -41,8 +41,8 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         tag(": "),
         parse_job_statuses,
         tag("["),
-        parse_decimal,
-        tag("%]"),
+        parse_percentage,
+        tag("]"),
         parse_speed,
         parse_iops,
         tag("[eta "),
@@ -67,6 +67,11 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
             eta: eta_time,
         },
     ))
+}
+
+fn parse_percentage(input: &str) -> IResult<&str, Option<Decimal>> {
+    let (input, progress) = terminated(take_until("%"), tag("%"))(input)?;
+    Ok((input, parse_decimal(progress).ok().map(|(_, per)| per)))
 }
 
 fn parse_eta_time(input: &str) -> IResult<&str, Duration> {

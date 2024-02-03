@@ -22,7 +22,7 @@ mod tests {
                         mixed_seq_reads_writes: 60,
                         ..Default::default()
                     },
-                    progress_percentage: Decimal::from_str_exact("37.5").unwrap(),
+                    progress_percentage: Decimal::from_str_exact("37.5").ok(),
                     read_speed: Some("7354MiB/s".to_string()),
                     read_iops: Some("1883k".to_string()),
                     eta: Duration::from_secs(25),
@@ -39,6 +39,15 @@ mod tests {
         );
 
         assert!(result.is_ok())
+    }
+
+    #[test]
+    fn parse_bad_progress() {
+        let result = parse_eta_line(
+            "Jobs: 1 (f=1): [M(1)][-.-%][r=1025KiB/s,w=1025KiB/s][r=256,w=256 IOPS][eta 00m:53s]",
+        );
+
+        assert_eq!(result.unwrap().1.progress_percentage, None)
     }
 
     #[test]
@@ -63,7 +72,7 @@ mod tests {
                     mixed_seq_reads_writes: 1,
                     ..Default::default()
                 },
-                progress_percentage: Decimal::from_str_exact("0.0").unwrap(),
+                progress_percentage: Decimal::from_str_exact("0.0").ok(),
                 read_iops: Some("256".into()),
                 write_iops: Some("256".into()),
                 read_speed: Some("1025KiB/s".into()),

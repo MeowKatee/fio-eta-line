@@ -56,7 +56,7 @@ pub struct FioEtaLine {
     pub opened_files: u32,
     pub rate_limit: Option<String>,
     pub job_statuses: JobStatuses,
-    pub progress_percentage: Decimal,
+    pub progress_percentage: Option<Decimal>,
     pub read_speed: Option<String>,
     pub write_speed: Option<String>,
     pub trim_speed: Option<String>,
