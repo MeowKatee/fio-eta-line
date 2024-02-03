@@ -50,16 +50,19 @@ pub enum JobStatus {
     Unknown(char),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct FioEtaLine {
     pub jobs_unfinished: u32,
     pub opened_files: u32,
+    pub rate_limit: Option<String>,
     pub job_statuses: JobStatuses,
     pub progress_percentage: Decimal,
     pub read_speed: Option<String>,
     pub write_speed: Option<String>,
+    pub trim_speed: Option<String>,
     pub read_iops: Option<String>,
     pub write_iops: Option<String>,
+    pub trim_iops: Option<String>,
     pub eta: Duration,
 }
 

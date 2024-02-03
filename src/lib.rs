@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use nom::{
-    bytes::complete::{tag, take_while},
+    bytes::complete::{tag, take_until, take_while},
     character::complete::{anychar, char, digit1, space1},
-    combinator::{map, map_res},
+    combinator::{map, map_res, opt},
     multi::{separated_list0, separated_list1},
     sequence::{pair, preceded, tuple},
     IResult,
@@ -15,20 +15,20 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         input,
         (
             _jobs,
-            num_jobs,
+            jobs_unfinished,
             _f,
-            num_files,
-            _,
+            opened_files,
+            _right_bracket,
+            rate_limit,
+            _semicon,
             job_statuses,
             _,
-            percentage,
+            progress_percentage,
             _,
-            (read_speed, write_speed),
-            (read_iops, write_iops),
+            (read_speed, write_speed, trim_speed),
+            (read_iops, write_iops, trim_iops),
             _eta,
-            eta_min,
-            _m,
-            eta_sec,
+            eta_time,
             _send,
         ),
     ) = tuple((
@@ -36,7 +36,9 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         parse_u32,
         tag(" (f="),
         parse_u32,
-        tag("): "),
+        tag(")"),
+        parse_rate_limit,
+        tag(": "),
         parse_job_statuses,
         tag("["),
         parse_decimal,
@@ -44,26 +46,48 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         parse_speed,
         parse_iops,
         tag("[eta "),
-        parse_u32,
-        tag("m:"),
-        parse_u32,
-        tag("s]"),
+        parse_eta_time,
+        tag("]"),
     ))(input)?;
 
     Ok((
         input,
         FioEtaLine {
-            jobs_unfinished: num_jobs,
-            opened_files: num_files,
+            jobs_unfinished,
+            opened_files,
+            rate_limit: rate_limit.map(|s| s.to_owned()),
             job_statuses,
-            progress_percentage: percentage,
+            progress_percentage,
             read_speed,
             write_speed,
+            trim_speed,
             read_iops,
             write_iops,
-            eta: Duration::from_secs((eta_min * 60 + eta_sec) as _),
+            trim_iops,
+            eta: eta_time,
         },
     ))
+}
+
+fn parse_eta_time(input: &str) -> IResult<&str, Duration> {
+    let (input, eta_time) = separated_list1(tag(":"), tuple((parse_u32, anychar)))(input)?;
+    let (eta_secs, unit) = eta_time
+        .into_iter()
+        .reduce(|(time, unit), (next_time, next_unit)| {
+            (
+                time * if unit == 'd' { 24 } else { 60 } + next_time,
+                next_unit,
+            )
+        })
+        .unwrap();
+    debug_assert!(unit == 's');
+    Ok((input, Duration::from_secs(eta_secs as _)))
+}
+
+fn parse_rate_limit(input: &str) -> IResult<&str, Option<&str>> {
+    let (input, rate_limit) = opt(preceded(tag(", "), take_until(":")))(input)?;
+
+    Ok((input, rate_limit))
 }
 
 fn parse_job_status(input: &str) -> IResult<&str, (JobStatus, u32)> {
@@ -84,7 +108,10 @@ fn parse_job_statuses(input: &str) -> IResult<&str, JobStatuses> {
     Ok((input, fold_job_statuses(statuses)))
 }
 
-fn parse_rw_pair(input: &str) -> IResult<&str, (Option<String>, Option<String>)> {
+// returns (read, write, trim)
+fn parse_comma_pair(
+    input: &str,
+) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
     map(
         separated_list1(
             tag(","),
@@ -99,27 +126,29 @@ fn parse_rw_pair(input: &str) -> IResult<&str, (Option<String>, Option<String>)>
         |values: Vec<(char, &str)>| {
             let mut read = None;
             let mut write = None;
+            let mut trim = None;
             for (rw, speed) in values {
                 match rw {
                     'r' => read = Some(speed.to_string()),
                     'w' => write = Some(speed.to_string()),
+                    't' => trim = Some(speed.to_string()),
                     _ => (), // ignore unknown type
                 }
             }
-            (read, write)
+            (read, write, trim)
         },
     )(input)
 }
 
-fn parse_iops(input: &str) -> IResult<&str, (Option<String>, Option<String>)> {
+fn parse_iops(input: &str) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
     let (input, (_, iops_content, _, _)) =
-        tuple((char('['), parse_rw_pair, space1, tag("IOPS]")))(input)?;
+        tuple((char('['), parse_comma_pair, space1, tag("IOPS]")))(input)?;
 
     Ok((input, iops_content))
 }
 
-fn parse_speed(input: &str) -> IResult<&str, (Option<String>, Option<String>)> {
-    let (input, (_, speed_content, _)) = tuple((char('['), parse_rw_pair, tag("]")))(input)?;
+fn parse_speed(input: &str) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
+    let (input, (_, speed_content, _)) = tuple((char('['), parse_comma_pair, tag("]")))(input)?;
 
     Ok((input, speed_content))
 }
