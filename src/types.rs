@@ -1,3 +1,4 @@
+use byte_unit::Byte;
 use rust_decimal::Decimal;
 use std::{
     ops::{Index, IndexMut},
@@ -50,11 +51,11 @@ pub enum JobStatus {
     Unknown(char),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct FioEtaLine {
     pub jobs_unfinished: u32,
     pub opened_files: u32,
-    pub rate_limit: Option<String>,
+    pub rate_limit: FioRateLimit,
     pub job_statuses: JobStatuses,
     pub progress_percentage: Option<Decimal>,
     pub speed: FioSpeed,
@@ -62,18 +63,32 @@ pub struct FioEtaLine {
     pub eta: Duration,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct FioSpeed {
-    pub read: Option<String>,
-    pub write: Option<String>,
-    pub trim: Option<String>,
+    pub read: Option<Byte>,
+    pub write: Option<Byte>,
+    pub trim: Option<Byte>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct FioIOPS {
-    pub read: Option<String>,
-    pub write: Option<String>,
-    pub trim: Option<String>,
+    pub read: Option<u64>,
+    pub write: Option<u64>,
+    pub trim: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum FioRateLimit {
+    #[default]
+    NoRateLimit,
+    IOPSLimit {
+        min: u64,
+        max: u64,
+    },
+    SpeedLimit {
+        min: Byte,
+        max: Byte,
+    },
 }
 
 impl Into<JobStatus> for char {

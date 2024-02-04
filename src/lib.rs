@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use nom::{
     bytes::complete::{tag, take_until, take_while},
-    character::complete::{anychar, char, digit1, space1},
-    combinator::{map, map_res, opt},
+    character::complete::{anychar, char, space1},
+    combinator::{map, opt},
     multi::{separated_list0, separated_list1},
     sequence::{pair, preceded, terminated, tuple},
     IResult,
@@ -53,7 +53,7 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         FioEtaLine {
             jobs_unfinished,
             opened_files,
-            rate_limit: rate_limit.map(|s| s.to_owned()),
+            rate_limit,
             job_statuses,
             progress_percentage,
             speed,
@@ -93,10 +93,36 @@ fn parse_eta_time(input: &str) -> IResult<&str, Duration> {
     Ok((input, Duration::from_secs(eta_secs as _)))
 }
 
-fn parse_rate_limit(input: &str) -> IResult<&str, Option<&str>> {
+fn parse_rate_limit(input: &str) -> IResult<&str, FioRateLimit> {
     let (input, rate_limit) = opt(preceded(tag(", "), take_until(":")))(input)?;
 
-    Ok((input, rate_limit))
+    let Some(rate_limit) = rate_limit else {
+        return Ok((input, FioRateLimit::NoRateLimit));
+    };
+
+    if rate_limit.ends_with(" IOPS") {
+        let iops_limits = rate_limit.trim_end_matches(" IOPS");
+        if let (_, (Some(min), _, Some(max))) = tuple((
+            map(take_until("-"), parse_iops_str),
+            char('-'),
+            map(take_while(|c: char| c.is_ascii_graphic()), parse_iops_str),
+        ))(iops_limits)?
+        {
+            return Ok((input, FioRateLimit::IOPSLimit { min, max }));
+        };
+    } else {
+        let speed_limits = rate_limit;
+        if let (_, (Some(min), _, Some(max))) = tuple((
+            map(take_until("-"), parse_speed_str),
+            char('-'),
+            map(take_while(|c: char| c.is_ascii_graphic()), parse_speed_str),
+        ))(speed_limits)?
+        {
+            return Ok((input, FioRateLimit::SpeedLimit { min, max }));
+        };
+    }
+
+    Ok((input, FioRateLimit::NoRateLimit))
 }
 
 fn parse_job_status(input: &str) -> IResult<&str, (JobStatus, u32)> {
@@ -118,62 +144,67 @@ fn parse_job_statuses(input: &str) -> IResult<&str, JobStatuses> {
 }
 
 // returns (read, write, trim)
-fn parse_comma_pair(
-    input: &str,
-) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
-    map(
-        separated_list1(
-            tag(","),
-            pair(
-                anychar,
-                preceded(
-                    char('='),
-                    take_while(|c: char| c.is_alphanumeric() || c == '/'),
+fn parse_comma_pair<R>(
+    process: fn(&str) -> Option<R>,
+) -> impl FnMut(&str) -> IResult<&str, (Option<R>, Option<R>, Option<R>)> {
+    move |input| {
+        map(
+            separated_list1(
+                tag(","),
+                pair(
+                    anychar,
+                    map(
+                        preceded(
+                            char('='),
+                            take_while(|c: char| c.is_alphanumeric() || c == '/'),
+                        ),
+                        process,
+                    ),
                 ),
             ),
-        ),
-        |values: Vec<(char, &str)>| {
-            let mut read = None;
-            let mut write = None;
-            let mut trim = None;
-            for (rw, speed) in values {
-                match rw {
-                    'r' => read = Some(speed.to_string()),
-                    'w' => write = Some(speed.to_string()),
-                    't' => trim = Some(speed.to_string()),
-                    _ => (), // ignore unknown type
+            |values| {
+                let mut read = None;
+                let mut write = None;
+                let mut trim = None;
+                for (rw, result) in values {
+                    if let Some(result) = result {
+                        match rw {
+                            'r' => read = Some(result),
+                            'w' => write = Some(result),
+                            't' => trim = Some(result),
+                            _ => (), // ignore unknown type
+                        }
+                    }
                 }
-            }
-            (read, write, trim)
-        },
-    )(input)
+                (read, write, trim)
+            },
+        )(input)
+    }
 }
 
 fn parse_iops(input: &str) -> IResult<&str, FioIOPS> {
-    let (input, (_lb, (read, write, trim), _space, _iops_rb)) =
-        tuple((char('['), parse_comma_pair, space1, tag("IOPS]")))(input)?;
+    let (input, (_lb, (read, write, trim), _space, _iops_rb)) = tuple((
+        char('['),
+        parse_comma_pair(parse_iops_str),
+        space1,
+        tag("IOPS]"),
+    ))(input)?;
 
     Ok((input, FioIOPS { read, write, trim }))
 }
 
 fn parse_speed(input: &str) -> IResult<&str, FioSpeed> {
     let (input, (_, (read, write, trim), _)) =
-        tuple((char('['), parse_comma_pair, tag("]")))(input)?;
+        tuple((char('['), parse_comma_pair(parse_speed_str), tag("]")))(input)?;
 
     Ok((input, FioSpeed { read, write, trim }))
 }
 
-fn parse_u32(input: &str) -> IResult<&str, u32> {
-    map_res(digit1, str::parse::<u32>)(input)
-}
-
-fn parse_decimal(input: &str) -> IResult<&str, Decimal> {
-    map_res(
-        take_while(|ch: char| ch == '.' || ch.is_ascii_digit()),
-        str::parse::<Decimal>,
-    )(input)
-}
-
+mod utils;
+use utils::*;
 mod types;
 pub use types::fold_job_statuses;
-pub use types::{FioEtaLine, FioIOPS, FioSpeed, JobStatus, JobStatuses};
+pub use types::{FioEtaLine, FioIOPS, FioRateLimit, FioSpeed, JobStatus, JobStatuses};
+
+pub use byte_unit;
+pub use rust_decimal;
