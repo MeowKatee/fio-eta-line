@@ -57,13 +57,23 @@ pub struct FioEtaLine {
     pub rate_limit: Option<String>,
     pub job_statuses: JobStatuses,
     pub progress_percentage: Option<Decimal>,
-    pub read_speed: Option<String>,
-    pub write_speed: Option<String>,
-    pub trim_speed: Option<String>,
-    pub read_iops: Option<String>,
-    pub write_iops: Option<String>,
-    pub trim_iops: Option<String>,
+    pub speed: FioSpeed,
+    pub iops: FioIOPS,
     pub eta: Duration,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct FioSpeed {
+    pub read: Option<String>,
+    pub write: Option<String>,
+    pub trim: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct FioIOPS {
+    pub read: Option<String>,
+    pub write: Option<String>,
+    pub trim: Option<String>,
 }
 
 impl Into<JobStatus> for char {

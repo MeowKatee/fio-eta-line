@@ -25,8 +25,7 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
             _lb,
             progress_percentage,
             _rb,
-            (read_speed, write_speed, trim_speed),
-            (read_iops, write_iops, trim_iops),
+            (speed, iops),
             _eta,
             eta_time,
             _send,
@@ -43,8 +42,7 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
         tag("["),
         parse_percentage,
         tag("]"),
-        parse_speed,
-        parse_iops,
+        parse_speed_iops,
         tag("[eta "),
         parse_eta_time,
         tag("]"),
@@ -58,15 +56,21 @@ pub fn parse_eta_line(input: &str) -> IResult<&str, FioEtaLine> {
             rate_limit: rate_limit.map(|s| s.to_owned()),
             job_statuses,
             progress_percentage,
-            read_speed,
-            write_speed,
-            trim_speed,
-            read_iops,
-            write_iops,
-            trim_iops,
+            speed,
+            iops,
             eta: eta_time,
         },
     ))
+}
+
+fn parse_speed_iops(input: &str) -> IResult<&str, (FioSpeed, FioIOPS)> {
+    let (input, speed_iops) = take_until("[eta")(input)?;
+    if speed_iops.is_empty() {
+        Ok((input, (Default::default(), Default::default())))
+    } else {
+        let (_, (speed, iops)) = tuple((parse_speed, parse_iops))(speed_iops)?;
+        Ok((input, (speed, iops)))
+    }
 }
 
 fn parse_percentage(input: &str) -> IResult<&str, Option<Decimal>> {
@@ -145,17 +149,18 @@ fn parse_comma_pair(
     )(input)
 }
 
-fn parse_iops(input: &str) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
-    let (input, (_, iops_content, _, _)) =
+fn parse_iops(input: &str) -> IResult<&str, FioIOPS> {
+    let (input, (_lb, (read, write, trim), _space, _iops_rb)) =
         tuple((char('['), parse_comma_pair, space1, tag("IOPS]")))(input)?;
 
-    Ok((input, iops_content))
+    Ok((input, FioIOPS { read, write, trim }))
 }
 
-fn parse_speed(input: &str) -> IResult<&str, (Option<String>, Option<String>, Option<String>)> {
-    let (input, (_, speed_content, _)) = tuple((char('['), parse_comma_pair, tag("]")))(input)?;
+fn parse_speed(input: &str) -> IResult<&str, FioSpeed> {
+    let (input, (_, (read, write, trim), _)) =
+        tuple((char('['), parse_comma_pair, tag("]")))(input)?;
 
-    Ok((input, speed_content))
+    Ok((input, FioSpeed { read, write, trim }))
 }
 
 fn parse_u32(input: &str) -> IResult<&str, u32> {
@@ -171,4 +176,4 @@ fn parse_decimal(input: &str) -> IResult<&str, Decimal> {
 
 mod types;
 pub use types::fold_job_statuses;
-pub use types::{FioEtaLine, JobStatus, JobStatuses};
+pub use types::{FioEtaLine, FioIOPS, FioSpeed, JobStatus, JobStatuses};

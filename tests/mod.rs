@@ -2,11 +2,11 @@
 mod tests {
     use std::time::Duration;
 
-    use fio_eta_line::{parse_eta_line, FioEtaLine, JobStatuses};
+    use fio_eta_line::{parse_eta_line, FioEtaLine, FioIOPS, FioSpeed, JobStatuses};
     use rust_decimal::Decimal;
 
     #[test]
-    fn parse_seq_read() {
+    fn seq_read() {
         let result = parse_eta_line(
             "Jobs: 94 (f=94): [R(6),M(29),M(31)][37.5%][r=7354MiB/s][r=1883k IOPS][eta 00m:25s]",
         );
@@ -23,8 +23,14 @@ mod tests {
                         ..Default::default()
                     },
                     progress_percentage: Decimal::from_str_exact("37.5").ok(),
-                    read_speed: Some("7354MiB/s".to_string()),
-                    read_iops: Some("1883k".to_string()),
+                    speed: FioSpeed {
+                        read: Some("7354MiB/s".into()),
+                        ..Default::default()
+                    },
+                    iops: FioIOPS {
+                        read: Some("1883k".into()),
+                        ..Default::default()
+                    },
                     eta: Duration::from_secs(25),
                     ..Default::default()
                 }
@@ -33,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_rate_limit() {
+    fn rate_limit() {
         let result = parse_eta_line(
             "Jobs: 1 (f=1), 0B/s-2048KiB/s: [M(1)][11.7%][r=1025KiB/s,w=1025KiB/s][r=256,w=256 IOPS][eta 00m:53s]"
         );
@@ -42,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_bad_progress() {
+    fn bad_progress() {
         let result = parse_eta_line(
             "Jobs: 1 (f=1): [M(1)][-.-%][r=1025KiB/s,w=1025KiB/s][r=256,w=256 IOPS][eta 00m:53s]",
         );
@@ -51,7 +57,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_long_time() {
+    fn no_speed_iops() {
+        let result = parse_eta_line("Jobs: 1 (f=1): [W(1)][5.7%][eta 00m:30s]");
+        assert!(result.is_ok())
+    }
+
+    #[test]
+    fn long_time() {
         let result = parse_eta_line("Jobs: 1 (f=1): [M(1)][0.0%][r=1025KiB/s,w=1025KiB/s][r=256,w=256 IOPS][eta 83d:07h:59m:55s]");
 
         let Ok(result) = result else {
@@ -73,10 +85,17 @@ mod tests {
                     ..Default::default()
                 },
                 progress_percentage: Decimal::from_str_exact("0.0").ok(),
-                read_iops: Some("256".into()),
-                write_iops: Some("256".into()),
-                read_speed: Some("1025KiB/s".into()),
-                write_speed: Some("1025KiB/s".into()),
+
+                speed: FioSpeed {
+                    read: Some("1025KiB/s".into()),
+                    write: Some("1025KiB/s".into()),
+                    ..Default::default()
+                },
+                iops: FioIOPS {
+                    read: Some("256".into()),
+                    write: Some("256".into()),
+                    ..Default::default()
+                },
                 eta: Duration::from_secs(secs),
                 ..Default::default()
             }
