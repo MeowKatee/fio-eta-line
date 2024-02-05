@@ -36,3 +36,37 @@ fn seq_read() {
         ))
     )
 }
+
+#[test]
+fn seq_read_write() {
+    let result = parse_eta_line(
+        "Jobs: 1 (f=1): [M(1)][80.0%][r=785MiB/s,w=781MiB/s][r=201k,w=200k IOPS][eta 00m:01s]",
+    );
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            FioEtaLine {
+                jobs_unfinished: 1,
+                opened_files: 1,
+                job_statuses: JobStatuses {
+                    mixed_seq_reads_writes: 1,
+                    ..Default::default()
+                },
+                progress_percentage: Decimal::from_str_exact("80.0").ok(),
+                speed: FioSpeed {
+                    read: Byte::MEBIBYTE.multiply(785),
+                    write: Byte::MEBIBYTE.multiply(781),
+                    ..Default::default()
+                },
+                iops: FioIOPS {
+                    read: Some(201 * 1000),
+                    write: Some(200 * 1000),
+                    ..Default::default()
+                },
+                eta: Duration::from_secs(1),
+                ..Default::default()
+            }
+        ))
+    )
+}
